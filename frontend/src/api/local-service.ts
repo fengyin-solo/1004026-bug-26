@@ -5,6 +5,10 @@ import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } f
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
 const NEGATIVE_ACTIONS = ['撤销', '作废', '拒绝', '驳回', '停用', '忽略', '下线', '回滚']
 
+// 链路三件套由 repair-chain 统一维护，通用的「直接改状态」入口一律拒绝，
+// 避免绕过事务、锁与历史冻结，再次制造状态丢失。
+const CHAIN_GUARDED_KEYS = ['out_repair', 'repair_accept', 'repair_rework']
+
 export function moduleMeta(key: string): ModuleMeta {
   const meta = MODULE_BY_KEY.get(key)
   if (!meta) {
@@ -30,6 +34,12 @@ export function listEntries(key: string, filters: Record<string, string> = {}): 
 
 export function runAction(key: string, id: number, action: string): ActionResult {
   const meta = moduleMeta(key)
+  if (CHAIN_GUARDED_KEYS.includes(key)) {
+    return {
+      ok: false,
+      message: '维修 / 验收 / 返修属于同一条链路，请使用页面上的「发起验收、确认通过、退回返修、完成返修」等链路按钮操作',
+    }
+  }
   const target = meta.actionTargets[action]
   if (!target) {
     return { ok: false, message: `${meta.entity}没有登记「${action}」这个动作` }
@@ -86,7 +96,9 @@ export function downloadEntries(key: string): void {
 
 export function loadOverview(): OverviewResult {
   const rows = allRows()
-  const modules = [...MODULE_BY_KEY.values()].map((meta) => {
+  const modules = [...MODULE_BY_KEY.values()]
+    .filter((meta) => !meta.internal)
+    .map((meta) => {
     const entries = rows[meta.key] ?? []
     return {
       name: meta.name,

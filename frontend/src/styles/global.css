@@ -35,3 +35,8 @@ body { margin: 0; background: #f6f8fb; color: #1f2937; }
 .error-text { color: #b42318; }
 .status-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 10px; font-size: 12px; color: var(--muted); }
 .legend-item { background: #eef2f7; border-radius: 999px; padding: 2px 10px; }
+.status-tag { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; white-space: nowrap; }
+.tag-idle { background: #eef2f7; color: #475569; }
+.tag-active { background: #e0edff; color: #1d4ed8; }
+.tag-rework { background: #fef3f2; color: #b42318; }
+.tag-done { background: #e7f6ec; color: #166534; }

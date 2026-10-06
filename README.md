@@ -38,6 +38,37 @@ cd frontend
 npm run build
 ```
 
+领域逻辑测试（vitest，纯 TS 链路用例 + 两个工作台的 jsdom 冒烟/点击用例）：
+
+```bash
+cd frontend
+npm install --no-save vitest@1 jsdom   # 仓库未固化测试依赖，首次运行前安装一次
+npm test
+```
+
+## 维修 — 验收 — 返修链路
+
+外出维修、维修验收、返修事项共用同一条链（`chainId` = 派遣编号），所有写入统一走
+`frontend/src/api/repair-chain.ts`，通用的状态翻转入口对这三个模块一律拒绝。
+
+状态链路：
+
+```text
+维修  待派遣 → 已派遣 → 维修中 → 已返回 ──发起验收──┐
+                                                   ▼
+验收  待验收 → 验收中 ──确认通过──────────────────► 已通过      （维修闭环，旧记录封存为历史）
+                        └──退回返修──► 需返修（本轮封存）
+返修                               生成唯一「待返修」事项；维修 → 返修中
+      完成返修：事项完成、维修 → 返修完成，并自动开启新一轮「待验收」承接；旧轮保留为历史
+```
+
+约定的不变量：
+
+- **唯一返修事项**：一条链同一时刻至多一条「待返修」，创建阶段按链查重，重复提交/中断续跑都不会多出一条。
+- **验收只追加**：每轮验收一行、按轮次递增；退回不改写旧行，返修完成由新轮次承接。当前结论只看最新轮次，历史「已通过」不会再被当成现行结论。
+- **中断续跑**：退回/通过/完成返修都是多步事务，每完成一个阶段随数据一起落盘（`pending` 记录 `nextStage`）。刷新或关闭后，两个工作台顶部会提示「从断点继续」，创建类阶段幂等。
+- **并发退回**：每条链有带 TTL 的处理锁，校验与抢锁在同一次原子写入内完成，多人同时退回只有一人成功，其他人收到明确提示；锁过期后可在页面上接管。
+
 ## 业务模块
 
 | 模块 | 目录 | 业务对象 | 主要字段 |
@@ -64,8 +95,10 @@ npm run build
 ## 约定
 
 - 每个模块的页面在 `frontend/src/views/<模块>/index.vue`，页面只负责渲染，读写统一走
-  `frontend/src/api/local-service.ts`。
+  `frontend/src/api/local-service.ts`；维修、验收、返修三件套走 `frontend/src/api/repair-chain.ts`（多步事务 + 处理锁）。
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
-- 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
-- 想回到初始数据：清掉浏览器里 `underground-pipeline-inspection:entries` 这一项，或调用 `resetModule(模块)`。
+- 普通模块的状态流转只允许在 `local-service.ts` 里改；维修链上的任何状态变更只允许在
+  `repair-chain.ts` 里改，页面组件不做业务判断。
+- 想回到初始数据：清掉浏览器里 `underground-pipeline-inspection:entries` 这一项，或调用 `resetModule(模块)`；
+  维修链可直接在「外出维修工作台」点「重置演示链路」（同时清空中断事务与处理锁）。
