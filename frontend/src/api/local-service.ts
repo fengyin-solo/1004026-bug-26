@@ -1,6 +1,15 @@
 import { MODULE_BY_KEY } from '@/data/modules'
 import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
+import {
+  exportAcceptancesCsv,
+  exportRepairsCsv,
+  flowOverviewEntry,
+  resetRepairFlow,
+} from '@/api/repair-flow-service'
 import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
+
+// 外出维修与维修验收走专属链路服务（验收—维修—返修有跨表状态机），不再走通用单行流转。
+const FLOW_MODULES = new Set(['out_repair', 'repair_accept'])
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
 const NEGATIVE_ACTIONS = ['撤销', '作废', '拒绝', '驳回', '停用', '忽略', '下线', '回滚']
@@ -30,6 +39,9 @@ export function listEntries(key: string, filters: Record<string, string> = {}): 
 
 export function runAction(key: string, id: number, action: string): ActionResult {
   const meta = moduleMeta(key)
+  if (FLOW_MODULES.has(key)) {
+    return { ok: false, message: `${meta.name}的状态流转请在对应工作台通过链路动作处理` }
+  }
   const target = meta.actionTargets[action]
   if (!target) {
     return { ok: false, message: `${meta.entity}没有登记「${action}」这个动作` }
@@ -57,12 +69,22 @@ export function runAction(key: string, id: number, action: string): ActionResult
 }
 
 export function resetModule(key: string): PageResult {
+  if (FLOW_MODULES.has(key)) {
+    resetRepairFlow()
+    return { items: [], total: 0, page: 1, size: 0 }
+  }
   resetRows(key)
   return listEntries(key)
 }
 
 export function exportEntries(key: string): { filename: string; content: string } {
   const meta = moduleMeta(key)
+  if (key === 'out_repair') {
+    return exportRepairsCsv()
+  }
+  if (key === 'repair_accept') {
+    return exportAcceptancesCsv()
+  }
   const header = ['编号', ...meta.fields, '当前状态']
   const lines = [header.join(',')]
   for (const row of listRows(key)) {
@@ -86,7 +108,11 @@ export function downloadEntries(key: string): void {
 
 export function loadOverview(): OverviewResult {
   const rows = allRows()
+  const flowStats = flowOverviewEntry()
   const modules = [...MODULE_BY_KEY.values()].map((meta) => {
+    if (meta.key === 'out_repair' || meta.key === 'repair_accept') {
+      return { name: meta.name, ...flowStats[meta.key as 'out_repair' | 'repair_accept'] }
+    }
     const entries = rows[meta.key] ?? []
     return {
       name: meta.name,

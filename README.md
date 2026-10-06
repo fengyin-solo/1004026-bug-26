@@ -68,4 +68,13 @@ npm run build
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
 - 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
-- 想回到初始数据：清掉浏览器里 `underground-pipeline-inspection:entries` 这一项，或调用 `resetModule(模块)`。
+- **外出维修与维修验收是跨表链路**，不走通用单行流转，统一走
+  `frontend/src/api/repair-flow-service.ts`，数据独立持久化在
+  `underground-pipeline-inspection:repair-flow-v1`：
+  - 维修返回在同一事务里生成首轮验收；验收出结论（已通过/已退回）即封档，历史结论不可改；
+  - 退回返修只生成一条返修事项（按来源验收去重），返修完成后由新一轮验收承接，轮次 +1；
+  - 多步写入有操作账本，中断后从断点续做、不重复生成；每次提交带版本号 CAS，并发退回只成功一人；
+  - 链路联调验证：`cd frontend && npm run verify:flow`（55 项断言，含中断续做与并发场景）；
+    dev 页面底部有「故障注入」按钮可手动复现提交中断。
+- 想回到初始数据：清掉浏览器里 `underground-pipeline-inspection:entries` 与
+  `underground-pipeline-inspection:repair-flow-v1` 两项，或在外出维修工作台点「重置链路演示数据」。
